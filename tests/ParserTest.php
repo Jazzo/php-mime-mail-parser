@@ -11,7 +11,7 @@ use PhpMimeMailParser\Exception;
  * Fully Tested Mailparse Extension Wrapper for PHP 5.4+
  *
  */
-class ParserTest extends \PHPUnit_Framework_TestCase
+class ParserTest extends \PHPUnit\Framework\TestCase
 {
 
     /**
@@ -63,10 +63,28 @@ class ParserTest extends \PHPUnit_Framework_TestCase
                     $attachmentExpected[6],
                     md5(serialize($attachments[$iterAttachments]->getHeaders()))
                 );
-                
+
                 $iterAttachments++;
             }
         }
+    }
+
+    /**
+     * test for being able to extract multiple inline text/plain & text/html parts
+     * related to issue #163
+     *
+     * @return return type
+     */
+    public function testMultiPartInline()
+    {
+        $file = __DIR__ .'/mails/issue163';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $inline_parts = $Parser->getInlineParts('text');
+        $this->assertEquals(is_array($inline_parts), true);
+        $this->assertEquals(count($inline_parts), 2);
+        $this->assertEquals($inline_parts[0], "First we have a text block, then we insert an image:\r\n\r\n");
+        $this->assertEquals($inline_parts[1], "\r\n\r\nThen we have more text\r\n\r\n-- sent from my phone.");
     }
 
     public function testIlligalAttachmentFilenameForDispositionFilename()
@@ -75,8 +93,35 @@ class ParserTest extends \PHPUnit_Framework_TestCase
         $Parser = new Parser();
         $Parser->setText(file_get_contents($file));
         $attachments = $Parser->getAttachments(false);
-        
+
         $this->assertEquals("attach_01", $attachments[0]->getFilename());
+    }
+
+    public function testCharsetMacCyrillic()
+    {
+        $file = __DIR__ . '/mails/issue230';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+
+        $this->assertEquals('Scientific conferences, Bulgaria 2019', $Parser->getHeader('subject'));
+        $body = $Parser->getMessageBody('text');
+        $this->assertEquals(is_string($body), true);
+    }
+
+    /**
+     * Test for being able to extract a text/plain part from an email with 10 attachments.
+     * Related to pr #172.
+     *
+     * @return void
+     */
+    public function testMultiPartWithAttachments()
+    {
+        $file = __DIR__ .'/mails/m0028';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $body = $Parser->getMessageBody('text');
+        $this->assertEquals(is_string($body), true);
+        $this->assertEquals($body, "This is the plain text content of the email");
     }
 
     public function testIlligalAttachmentFilenameForContentName()
@@ -89,6 +134,15 @@ class ParserTest extends \PHPUnit_Framework_TestCase
         $this->assertEquals("1234_.._.._1234.txt", $attachments[0]->getFilename());
     }
 
+    public function testAttachmentFilenameWithLineBreaksForContentName()
+    {
+        $file = __DIR__ . '/mails/issue250';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $attachments = $Parser->getAttachments(false);
+        $this->assertEquals("Kontoutskrift for 1506.14.90466_Bedriftskonto.pdf", $attachments[0]->getFilename());
+    }
+
     public function testAttachmentsWithDuplicatesSuffix()
     {
         $file = __DIR__ . '/mails/m0026';
@@ -98,7 +152,7 @@ class ParserTest extends \PHPUnit_Framework_TestCase
         $attachDir = __DIR__ . '/mails/m0026_attachments/';
         $Parser->saveAttachments($attachDir, false);
 
-        $attachmentFiles = glob($attachDir . 'ATT*');
+        $attachmentFiles = glob($attachDir . '*');
 
         // Clean up attachments dir
         array_map('unlink', $attachmentFiles);
@@ -106,6 +160,8 @@ class ParserTest extends \PHPUnit_Framework_TestCase
 
         // Default: generate filename suffix, so we should have two files
         $this->assertEquals(2, count($attachmentFiles));
+        $this->assertEquals($attachDir . 'ATT00001.txt', $attachmentFiles[0]);
+        $this->assertEquals($attachDir . 'ATT00001_1.txt', $attachmentFiles[1]);
     }
 
     public function testAttachmentsWithDuplicatesRandom()
@@ -126,20 +182,23 @@ class ParserTest extends \PHPUnit_Framework_TestCase
         // Default: generate random filename, so we should have two files
         $this->assertEquals(2, count($attachmentFiles));
     }
-    
+
     public function testMultipleContentTransferEncodingHeader()
     {
         $file = __DIR__.'/mails/issue126';
         $Parser = new Parser();
         $Parser->setText(file_get_contents($file));
         $Parser->getMessageBody('text');
+        $Parser->getAttachments();
+        $this->assertTrue(true);
     }
-    
+
     public function testCreatingMoreThanOneInstanceOfParser()
     {
         $file = __DIR__.'/mails/issue84';
         (new Parser())->setPath($file)->getMessageBody();
         (new Parser())->setPath($file)->getMessageBody();
+        $this->assertTrue(true);
     }
 
     public function testDecodeCharsetFailedIsIgnored()
@@ -148,7 +207,7 @@ class ParserTest extends \PHPUnit_Framework_TestCase
             $file = __DIR__ . '/mails/issue116';
             $Parser = new Parser();
             $Parser->setText(file_get_contents($file));
-            $this->assertEquals("ЖД41 от 28.09.2016", $Parser->getHeader('subject'));
+            $this->assertEquals("ЖД№41 от 28.09.2016", $Parser->getHeader('subject'));
         }
     }
 
@@ -158,6 +217,39 @@ class ParserTest extends \PHPUnit_Framework_TestCase
         $Parser = new Parser();
         $Parser->setText(file_get_contents($file));
         $this->assertEquals(1, substr_count($Parser->getMessageBody('htmlEmbedded'), 'image/'));
+    }
+
+    public function testGetAddressesWithQuot()
+    {
+        $file = __DIR__ . '/mails/m0124';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $from = $Parser->getAddresses('from');
+        $this->assertEquals([
+            [
+                "display" => 'ФГУП "СибНИА им.С.А.Чаплыгина""',
+                "address" => 'user@domain.ru',
+                "is_group" => false
+            ]
+            ], $from);
+    }
+
+    public function testGetMessageBodyNotFound()
+    {
+        $file = __DIR__ . '/mails/m0124';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $body = $Parser->getMessageBody();
+        $this->assertEmpty($body);
+    }
+
+    public function testUnknownContentDisposition()
+    {
+        $file = __DIR__ . '/mails/issue182';
+        $Parser = new Parser();
+        $Parser->setText(file_get_contents($file));
+        $this->assertEquals(1, count($Parser->getAttachments()));
+        $this->assertEquals(1, count($Parser->getAttachments(true)));
     }
 
     public function provideData()
@@ -999,6 +1091,40 @@ class ParserTest extends \PHPUnit_Framework_TestCase
                             )
                         ),
                     2),
+                array(
+                    'issue149',
+                    "מענה 'אני לא נמצא': Invoice 02722027",
+                    array(
+                        array(
+                            'display' => 'Name',
+                            'address' => 'name@company.com',
+                            'is_group' => false
+                            )
+                    ),
+                    'Name <name@company.com>',
+                    array(
+                        array(
+                            'display' => 'name@company2.com',
+                            'address' => 'name@company2.com',
+                            'is_group' => false
+                            )
+                    ),
+                    'name@company2.com',
+                    array('MATCH',"\n"),
+                    array('COUNT',1,'<div dir="ltr"><br></div>'),
+                    array(
+                        array(
+                            'attach01',
+                            2,
+                            'a',
+                            1,
+                            'application/octet-stream',
+                            'attachment',
+                            '04c1d5793efa97c956d011a8b3309f05',
+                            '',
+                            )
+                        ),
+                    0),
                 );
         return $data;
     }
@@ -1123,7 +1249,7 @@ class ParserTest extends \PHPUnit_Framework_TestCase
             //Remove Attachment Directory
             rmdir($attach_dir);
         } else {
-            $this->assertFalse($Parser->saveAttachments($attach_dir));
+            $this->assertEquals([], $Parser->saveAttachments($attach_dir));
         }
 
         //Test embedded Attachments
@@ -1257,7 +1383,7 @@ class ParserTest extends \PHPUnit_Framework_TestCase
             //Remove Attachment Directory
             rmdir($attach_dir);
         } else {
-            $this->assertFalse($Parser->saveAttachments($attach_dir));
+            $this->assertEquals([], $Parser->saveAttachments($attach_dir));
         }
 
         //Test embedded Attachments
@@ -1392,7 +1518,7 @@ class ParserTest extends \PHPUnit_Framework_TestCase
             //Remove Attachment Directory
             rmdir($attach_dir);
         } else {
-            $this->assertFalse($Parser->saveAttachments($attach_dir));
+            $this->assertEquals([], $Parser->saveAttachments($attach_dir));
         }
 
         //Test embedded Attachments
@@ -1542,6 +1668,273 @@ aXBpdC4K'
             $expectedMimePart = $attachmentMimeParts[$i];
             $this->assertEquals($expectedMimePart, $attachment->getMimePartStr());
             $i++;
+        }
+    }
+
+    /**
+     * @dataProvider providerRFC822AttachmentsWithDifferentTextTypes
+     *
+     * @param string $file Mail file path to parse
+     * @param string $getType The type to give to getMessageBody
+     * @param string $expected
+     */
+    public function testRFC822AttachmentPartsShouldNotBeIncludedInGetMessageBody($file, $getType, $expected)
+    {
+        $Parser = new Parser();
+        $Parser->setPath($file);
+        $this->assertEquals($expected, $Parser->getMessageBody($getType));
+    }
+
+    public function providerRFC822AttachmentsWithDifferentTextTypes()
+    {
+        return [
+            'HTML-only message, with text-only RFC822 attachment, message should have empty text body' => [
+                __DIR__.'/mails/issue158a',
+                'text',
+                ''
+            ],
+            'HTML-only message, with text-only RFC822 attachment, message should have HTML body' => [
+                __DIR__.'/mails/issue158a',
+                'html',
+                "<html><body>An RFC 822 forward with a <em>HTML</em> body</body></html>\n"
+            ],
+            'Text-only message, with HTML-only RFC822 attachment, message should have empty HTML body' => [
+                __DIR__.'/mails/issue158b',
+                'html',
+                ''
+            ],
+            'Text-only message, with HTML-only RFC822 attachment, message should have text body' => [
+                __DIR__.'/mails/issue158b',
+                'text',
+                "A text/plain response to an REC822 message, with content filler to get it past the
+200 character lower-limit in order to avoid preferring future HTML versions of the
+body... filler filler filler filler filler filler filler filler filler.\n"
+            ],
+            'Text-only message, with text-only RFC822 attachment,
+            should have text body but not include attachment part' => [
+                __DIR__.'/mails/issue158c',
+                'text',
+                "An RFC822 forward of a PLAIN TEXT message with a plain-text body.\n"
+            ],
+            'Text-only message, with a text-only RFC822 attachment, message should have an empty HTML body' => [
+                __DIR__.'/mails/issue158c',
+                'html',
+                ''
+            ],
+            'Multipart email with both text and html body, with RFC822 attachment also with a text and html body' => [
+                __DIR__.'/mails/issue158d',
+                'text',
+                "This is the forward email send both emails will have both text and html variances available\n"
+            ],
+            'Multipart with both text and html body, RFC822 attachment also with text and html' => [
+                __DIR__.'/mails/issue158d',
+                'html',
+                '<html><body><div>This is the forward email send both
+emails will have both text and html
+variances available &nbsp;</div></body></html>'
+            ],
+        ];
+    }
+
+    /**
+     * Ensure the middleware can modify mime part data
+     */
+    public function testMiddleware()
+    {
+
+        $middlewareCalled = false;
+
+        //Init
+        $file = __DIR__.'/mails/m0001';
+
+        //Load From Path
+        $Parser = new Parser();
+
+        // add literal function middleware
+        $Parser->addMiddleware(function ($mimePart, $next) use (&$middlewareCalled) {
+            $middlewareCalled = true;
+            $part = $mimePart->getPart();
+
+            if (isset($part['headers']['from'])) {
+                $part['headers']['from'] = 'Middleware';
+            }
+            $mimePart->setPart($part);
+
+            return $next($mimePart);
+        });
+
+        // executes the middleware
+        $Parser->setPath($file);
+
+        $this->assertTrue($middlewareCalled, 'Middleware was was not called.');
+        $this->assertEquals($Parser->getHeader('from'), 'Middleware', 'From header modification failed');
+
+        // run middlware in factory
+        $middlewareCallCount = 0;
+        $mimePart = new MimePart('1', array());
+        $middleWare = new MiddleWare(function ($mimePart, $next) use (&$middlewareCallCount) {
+            $middlewareCallCount++;
+            return $next($mimePart);
+        });
+        $middlewareStack = MiddlewareStack::factory(array($middleWare, $middleWare));
+
+        // executes the middleware
+        $middlewareStack->parse($mimePart);
+
+        $this->assertTrue($middlewareCallCount == 2, 'Middleware was was not called.');
+    }
+
+    /**
+     * Ensure MimePart has ArrayAccess
+     */
+    public function testMimePart()
+    {
+        $id = '1';
+        $part = array('foo' => 'bar');
+        $part2 = array('fooz' => 'barz');
+        $mimePart = new MimePart($id, $part);
+
+        // created
+        $this->assertEquals($mimePart->getId(), $id);
+        $this->assertEquals($mimePart->getPart(), $part);
+        $this->assertTrue(isset($mimePart['foo']));
+        $this->assertEquals($mimePart['foo'], $part['foo']);
+
+        // new part
+        $mimePart->setPart($part2);
+        $this->assertEquals($mimePart->getId(), $id);
+        $this->assertEquals($mimePart->getPart(), $part2);
+        $this->assertTrue(isset($mimePart['fooz']));
+        $this->assertEquals($mimePart['fooz'], $part2['fooz']);
+
+        // modification and unset
+        $mimePart['fooz'] = 'foozbarz';
+        $mimePart[] = 'indexedFoo';
+        $this->assertEquals($mimePart['fooz'], 'foozbarz');
+        $this->assertEquals($mimePart[0], 'indexedFoo');
+        unset($mimePart['fooz']);
+        unset($mimePart[0]);
+        $this->assertTrue(isset($mimePart['fooz']) === false);
+        $this->assertTrue(isset($mimePart[0]) === false);
+    }
+
+    public function testParsingFileWithoutEndOfLineFromText()
+    {
+        $file = 'From: mail@exemple.com
+To: mail@exemple.com, mail2@exemple3.com, mail3@exemple2.com
+Subject: =?windows-1251?Q?occurs_when_divided_into_an_array?=
+ =?windows-1251?Q?=2C_and_the_last_e_of_the_array!_=CF=F3=F2?=
+ =?windows-1251?Q?=B3=ED_=F5=F3=E9=EB=EE!!!!!!?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+mini plain body';
+
+        $ParserByText = new Parser();
+        $ParserByText->setText($file);
+        $this->assertContains('mini plain body', $ParserByText->getMessageBody('text'));
+
+        $ParserByPath = new Parser();
+        $temp = tmpfile();
+        fwrite($temp, $file);
+        rewind($temp);
+        $metaDatas = stream_get_meta_data($temp);
+        $tmpFilename = $metaDatas['uri'];
+        $ParserByPath->setPath($tmpFilename);
+        $this->assertContains('mini plain body', $ParserByPath->getMessageBody('text'));
+    }
+
+    public function testParsingFileWithoutEndOfLineFromPath()
+    {
+        $file = 'From: mail@exemple.com
+To: mail@exemple.com, mail2@exemple3.com, mail3@exemple2.com
+Subject: =?windows-1251?Q?occurs_when_divided_into_an_array?=
+ =?windows-1251?Q?=2C_and_the_last_e_of_the_array!_=CF=F3=F2?=
+ =?windows-1251?Q?=B3=ED_=F5=F3=E9=EB=EE!!!!!!?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+mini plain body';
+
+        $ParserByPath = new Parser();
+        $temp = tmpfile();
+        fwrite($temp, $file);
+        rewind($temp);
+        $metaDatas = stream_get_meta_data($temp);
+        $tmpFilename = $metaDatas['uri'];
+        $ParserByPath->setPath($tmpFilename);
+        $this->assertContains('mini plain body', $ParserByPath->getMessageBody('text'));
+    }
+
+    public function testParsingFileWithoutEndOfLineFromStream()
+    {
+        $file = 'From: mail@exemple.com
+To: mail@exemple.com, mail2@exemple3.com, mail3@exemple2.com
+Subject: =?windows-1251?Q?occurs_when_divided_into_an_array?=
+ =?windows-1251?Q?=2C_and_the_last_e_of_the_array!_=CF=F3=F2?=
+ =?windows-1251?Q?=B3=ED_=F5=F3=E9=EB=EE!!!!!!?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+
+mini plain body';
+
+        $ParserByStream = new Parser();
+        $temp = tmpfile();
+        fwrite($temp, $file);
+        rewind($temp);
+        $ParserByStream->setStream($temp);
+        $this->assertContains('mini plain body', $ParserByStream->getMessageBody('text'));
+    }
+
+    public function testCharsetSupportedAsAnAlias()
+    {
+        // Init
+        $file = __DIR__ . '/mails/failure.eml';
+
+        $Parser = new Parser();
+        $Parser->setPath($file);
+        $this->assertEquals('<foo@bar.de>', $Parser->getHeader('from'));
+        $this->assertContains('次の受信者またはグル?プへの配信に失?·筏蓼筏?', $Parser->getMessageBody('text'));
+    }
+
+    public function testCharsetNotSupportedByMBString()
+    {
+        // Init
+        $file = __DIR__ . '/mails/issue212';
+
+        $Parser = new Parser();
+        $Parser->setPath($file);
+        $this->assertEquals(
+            'Automatyczna odpowiedź: Piotrze, test z 6 miesięcy nauki ciągle na Ciebie czeka',
+            $Parser->getHeader('subject')
+        );
+    }
+
+    public function testRecursiveMessageThatReturnContentTypeError()
+    {
+        $Parser = new Parser();
+        $Parser->setPath(__DIR__.'/mails/issue274.eml');
+
+        $this->assertEquals('guest@localhost', $Parser->getRawHeader('from'));
+        $this->assertContains('ligne 1', $Parser->getMessageBody('text'));
+        $this->assertContains('ligne 1', $Parser->getMessageBody('html'));
+
+        $attachments = $Parser->getAttachments();
+        $this->assertEquals(5, count($attachments));
+
+        foreach ($attachments as $key => $attachment) {
+            $attachmentsName = [
+                0 => 'Hello from SwiftMailer.docx',
+                1 => 'Hello from SwiftMailer.pdf',
+                2 => 'Hello from SwiftMailer.odt',
+                3 => 'Cours-Tutoriels-Serge-Tahé-1568x268.png',
+                4 => 'test-localhost.eml',
+            ];
+
+            $this->assertEquals($attachmentsName[$key], $attachment->getFilename());
         }
     }
 }

@@ -40,9 +40,9 @@ namespace PhpMimeMailParser {
      *
      */
 
-    class ExceptionTest extends \PHPUnit_Framework_TestCase
+    class ExceptionTest extends \PHPUnit\Framework\TestCase
     {
-        public function setUp()
+        public function setUp(): void
         {
             global $mockTmpFile;
             $mockTmpFile = false;
@@ -83,12 +83,33 @@ namespace PhpMimeMailParser {
 
         /**
          * @expectedException        Exception
-         * @expectedExceptionMessage Invalid type specified for getMessageBody(). "type" can either be text or html.
+         * @expectedExceptionMessage Invalid type specified for getMessageBody(). Expected: text, html or htmlEmbeded.
          */
         public function testgetMessageBody()
         {
             $Parser = new Parser();
             $Parser->getMessageBody('azerty');
+        }
+
+        /**
+         * @expectedException        Exception
+         * @expectedExceptionMessage Invalid type specified for getInlineParts(). "type" can either be text or html.
+         */
+        public function testgetInlineParts()
+        {
+            $Parser = new Parser();
+            $Parser->getInlineParts('azerty');
+        }
+
+
+        /**
+         * @expectedException        Exception
+         * @expectedExceptionMessage You must not call MimeMailParser::setText with an empty string parameter
+         */
+        public function testSetText()
+        {
+            $Parser = new Parser();
+            $Parser->setText('');
         }
 
         /**
@@ -154,7 +175,6 @@ namespace PhpMimeMailParser {
             $mid = 'm0001';
             $file = __DIR__.'/mails/'.$mid;
             $attach_dir = __DIR__.'/mails/attach_'.$mid.'/';
-            $attach_url = 'http://www.company.com/attachments/'.$mid.'/';
 
             $Parser = new Parser();
             $Parser->setStream(fopen($file, 'r'));
@@ -162,7 +182,7 @@ namespace PhpMimeMailParser {
             global $mockFopen;
             $mockFopen = true;
 
-            $Parser->saveAttachments($attach_dir, $attach_url);
+            $Parser->saveAttachments($attach_dir);
         }
 
         /**
